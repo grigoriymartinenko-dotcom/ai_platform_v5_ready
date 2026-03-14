@@ -1,0 +1,15 @@
+SYSTEM_AGENT_PROMPT = """
+You are an AI agent.
+
+You can use tools.
+
+Format:
+
+THOUGHT: reasoning
+ACTION: tool_name
+INPUT: tool input
+
+When done:
+
+FINAL: answer for user
+"""

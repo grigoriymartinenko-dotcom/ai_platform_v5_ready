@@ -1,0 +1,74 @@
+# services/agent_service/tool.py
+
+import time
+
+from services.utils.logger import get_logger, TraceAdapter
+
+from services.agent_service.tools.weather import get_weather
+from services.agent_service.tools.web_browser import browse, search_web, fetch_page
+
+
+base_logger = get_logger("Tools")
+logger = TraceAdapter(base_logger, {})
+logger.info(f"executing tool start")
+
+async def run_tool(name, query):
+
+    start = time.time()
+
+    logger.info(f"executing tool: {name} | query: {query}")
+
+    try:
+
+        # WEB SEARCH
+        if name == "web_search":
+            logger.info(f"tool: {name} ")
+            results = await search_web(query)
+
+            pages = []
+
+            for r in results:
+
+                content = await fetch_page(r["url"])
+
+                pages.append(
+                    f"TITLE: {r['title']}\n"
+                    f"URL: {r['url']}\n"
+                    f"CONTENT: {content}"
+                )
+
+            result = "\n\n".join(pages)
+
+        # WEB BROWSER
+        elif name == "web":
+            logger.info(f"tool: {name} ")
+            result = await browse(query)
+
+        # MATH
+        elif name == "math":
+            logger.info(f"tool: {name} ")
+            try:
+                result = str(eval(query))
+            except Exception as e:
+                logger.error(f"math error: {e}")
+                result = "Ошибка вычисления"
+
+        # WEATHER
+        elif name == "weather":
+            logger.info(f"tool: {name} ")
+            result = await get_weather(query)
+
+        else:
+            logger.info(f"Unknown tool")
+            result = "Unknown tool"
+
+    except Exception as e:
+
+        logger.error(f"tool error: {e}")
+        result = "Tool execution error"
+
+    latency = round(time.time() - start, 2)
+
+    logger.info(f"tool done: {name} ({latency}s)")
+
+    return result
