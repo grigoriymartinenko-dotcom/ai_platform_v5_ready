@@ -1,35 +1,55 @@
 # services/agent_service/tools/weather.py
-from services.agent_service.tools.tool_registry import register_tool
-from services.utils.logger import get_logger, TraceAdapter
+
 import httpx
 
-logger = TraceAdapter(get_logger("Weather"), {})
-API_KEY = "07108cf067a5fdf5aa26dce75354400f"
+from services.utils.logger import get_logger, TraceAdapter
+
+logger = TraceAdapter(get_logger("WeatherTool"), {})
+
+OPENWEATHER_API_KEY = "07108cf067a5fdf5aa26dce75354400f"
+BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
 
 
-async def weather(city: str = "") -> str:
-    logger.info(f"WEATHER REQUEST {city}")
+async def weather(city: str):
+    """
+    Получение текущей погоды для указанного города через OpenWeather API.
+    Возвращает строку с температурой, погодными условиями, ветром и влажностью.
+    """
     if not city:
-        return "Укажите город."
+        return "Не указан город для прогноза погоды."
 
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=metric&lang=ru"
+    params = {
+        "q": city,
+        "appid": OPENWEATHER_API_KEY,
+        "units": "metric",
+        "lang": "ru"
+    }
 
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url)
-            data = r.json()
-    except Exception as e:
-        logger.debug(f"Weather HTTP error: {e}")
-        return f"Не удалось получить погоду для {city}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            response = await client.get(BASE_URL, params=params)
+            data = response.json()
+        except Exception as e:
+            logger.debug(f"HTTP error: {e}")
+            return f"Ошибка при запросе к OpenWeather API: {e}"
 
-    if "main" not in data or "weather" not in data:
-        logger.debug(f"WEATHER ERROR {data}")
-        return f"Не удалось найти город: {city}"
+    if response.status_code != 200:
+        message = data.get("message", "Неизвестная ошибка")
+        return f"Ошибка OpenWeather API: {message}"
 
+    # Парсим данные
+    weather_desc = data["weather"][0]["description"].capitalize()
     temp = data["main"]["temp"]
-    description = data["weather"][0]["description"]
-    return f"Погода в {city}: {temp}°C, {description}"
+    feels_like = data["main"]["feels_like"]
+    humidity = data["main"]["humidity"]
+    wind_speed = data["wind"]["speed"]
 
+    result = (
+        f"Погода в {city}:\n"
+        f"{weather_desc}\n"
+        f"Температура: {temp}°C (ощущается как {feels_like}°C)\n"
+        f"Влажность: {humidity}%\n"
+        f"Ветер: {wind_speed} м/с"
+    )
 
-# регистрация через глобальный tool_registry
-register_tool("weather", "Get weather for city", weather)
+    return result
