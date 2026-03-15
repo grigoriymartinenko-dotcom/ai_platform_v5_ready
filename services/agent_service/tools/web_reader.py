@@ -3,7 +3,6 @@
 import httpx
 from bs4 import BeautifulSoup
 
-# Правильно для всех инструментов
 from services.agent_service.tools.tool_registry import register_tool
 from services.utils.logger import get_logger, TraceAdapter
 
@@ -11,21 +10,32 @@ base_logger = get_logger("WebReader")
 logger = TraceAdapter(base_logger, {})
 
 
-async def read_page(url: str):
+async def read_page(url: str = ""):
+
     logger.info(f"READ PAGE {url}")
 
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, timeout=15)
+    try:
 
-    soup = BeautifulSoup(r.text, "html.parser")
+        async with httpx.AsyncClient(timeout=15) as client:
 
-    text = soup.get_text()
+            r = await client.get(url)
 
-    return text[:5000]
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for tag in soup(["script", "style"]):
+            tag.decompose()
+
+        text = soup.get_text(separator=" ")
+
+        return text[:6000]
+
+    except Exception as e:
+
+        return f"Ошибка чтения страницы: {e}"
 
 
 register_tool(
-    "read_page",
-    "Read text from web page",
+    "web_reader",
+    "Read text content from web page",
     read_page
 )

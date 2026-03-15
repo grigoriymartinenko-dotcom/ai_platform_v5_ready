@@ -1,9 +1,9 @@
 # services/agent_service/agent.py
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
 from services.agent_service.agent_loop import agent_loop
 from services.utils.logger import get_logger, TraceAdapter
-import asyncio
 
 logger = TraceAdapter(get_logger("Agent"), {})
 

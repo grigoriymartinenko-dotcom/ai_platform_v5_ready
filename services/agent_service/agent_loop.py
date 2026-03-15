@@ -1,115 +1,153 @@
 # services/agent_service/agent_loop.py
 
-import httpx
 import json
-from services.utils.logger import get_logger, TraceAdapter
-from services.agent_service.tools.tool_registry import run_tool, list_tools
+import re
+
+import httpx
+
 from services.agent_service.parser import parse_llm_output
 from services.agent_service.prompt import SYSTEM_PROMPT
-import asyncio
+from services.agent_service.tools.tool_registry import run_tool, list_tools, generate_tool_prompt
+from services.utils.logger import get_logger, TraceAdapter
 
 logger = TraceAdapter(get_logger("AgentLoop"), {})
 
 LLM_URL = "http://localhost:8100/chat"
-MAX_STEPS = 6
+MAX_STEPS = 8
 
 
 class AgentLoop:
 
     async def call_llm(self, messages):
-        """
-        Вызывает LLM с полным контекстом сообщений.
-        """
+
+        tool_prompt = generate_tool_prompt()
+
         prompt = SYSTEM_PROMPT + "\n\n"
+        prompt += tool_prompt + "\n\n"
+
         for m in messages:
             prompt += f"{m['role']}: {m['content']}\n"
 
         async with httpx.AsyncClient(timeout=120) as client:
+
             try:
-                r = await client.post(LLM_URL, json={"message": prompt})
+
+                r = await client.post(
+                    LLM_URL,
+                    json={"message": prompt}
+                )
+
             except Exception as e:
+
                 logger.debug(f"LLM HTTP error: {e}")
                 return ""
+
             if r.status_code != 200:
+
                 logger.debug(f"LLM ERROR {r.status_code}: {r.text}")
                 return ""
+
             data = r.json()
+
             return data.get("answer", "")
 
-    def fix_partial_json(self, text):
-        """
-        Попытка закрыть неполный JSON от LLM.
-        """
-        open_braces = text.count("{")
-        close_braces = text.count("}")
-        if open_braces > close_braces:
-            text += "}" * (open_braces - close_braces)
-        return text
-
     async def handle_message(self, user_message):
-        """
-        Основной цикл обработки сообщения:
-        - Вызываем LLM
-        - Выполняем инструменты
-        - Добавляем результаты в контекст для следующего шага
-        """
-        logger.debug(f"STREAM USER MESSAGE: {user_message}")
-        messages = [{"role": "user", "content": user_message}]
 
-        # Лог доступных инструментов
+        logger.debug(f"STREAM USER MESSAGE: {user_message}")
         logger.debug(f"AVAILABLE TOOLS: {list(list_tools().keys())}")
 
+        messages = [
+            {"role": "user", "content": user_message}
+        ]
+
         try:
+
             for step in range(MAX_STEPS):
+
                 llm_output = await self.call_llm(messages)
-                llm_output = self.fix_partial_json(llm_output)
+
                 logger.debug(f"LLM STEP {step + 1}: {llm_output}")
 
-                # Если LLM вернул пустоту
-                if not llm_output.strip():
-                    return f"USER: {user_message} AI: пустой ответ LLM", []
+                text = llm_output.strip()
 
-                try:
-                    actions = parse_llm_output(llm_output)
-                except Exception as e:
-                    logger.debug(f"Parse LLM output error: {e}")
-                    final_answer = f"USER: {user_message} AI: {llm_output.strip()}"
-                    return final_answer, []
+                # tool(args)
+                tool_match = re.match(r"(\w+)\((.*?)\)", text)
 
-                if not actions:
-                    final_answer = f"USER: {user_message} AI: {llm_output.strip()}"
-                    return final_answer, []
+                if tool_match:
+
+                    tool_name = tool_match.group(1)
+                    arg_text = tool_match.group(2)
+
+                    try:
+                        args = json.loads(arg_text)
+                        if not isinstance(args, dict):
+                            args = {"query": arg_text}
+                    except:
+                        args = {"query": arg_text}
+
+                    llm_output = json.dumps(
+                        {"tool": tool_name, "args": args}
+                    )
+
+                    logger.debug(f"Converted tool() → {llm_output}")
+
+                # tool{json}
+                tool_json_match = re.match(r"(\w+)\s*(\{.*\})", text)
+
+                if tool_json_match:
+
+                    tool_name = tool_json_match.group(1)
+                    json_part = tool_json_match.group(2)
+
+                    try:
+                        args = json.loads(json_part)
+                    except:
+                        args = {}
+
+                    llm_output = json.dumps(
+                        {"tool": tool_name, "args": args}
+                    )
+
+                    logger.debug(f"Converted tool{{}} → {llm_output}")
+
+                actions = parse_llm_output(llm_output)
 
                 for action in actions:
+
                     if action["type"] == "tool":
+
                         tool_name = action["tool"]
                         args = action.get("args", {})
 
                         logger.debug(f"CALL TOOL {tool_name} {args}")
-                        try:
-                            result = await run_tool(tool_name, args)
-                            logger.debug(f"TOOL RESULT {result}")
 
-                            return str(result), []
+                        try:
+
+                            result = await run_tool(tool_name, args)
+
                         except Exception as e:
-                            result = f"Ошибка выполнения инструмента '{tool_name}': {e}"
-                            logger.debug(result)
+
+                            result = f"Tool error: {e}"
 
                         logger.debug(f"TOOL RESULT {result}")
 
-                        # Добавляем результат инструмента в контекст LLM
-                        messages.append({"role": "tool", "content": str(result)})
+                        messages.append({
+                            "role": "tool",
+                            "content": f"{tool_name} result:\n{result}"
+                        })
 
                     elif action["type"] == "final":
-                        final_answer = f"AI: {action['content']}"
-                        return final_answer, []
 
-            # Если достигнут лимит шагов
-            return f"USER: {user_message} AI: Не удалось завершить задачу", []
+                        return action["content"], []
+
+                if step == MAX_STEPS - 1:
+                    return "Agent step limit reached", []
 
         except Exception as e:
+
             logger.debug(f"ERROR in AgentLoop: {e}")
-            return f"USER: {user_message} AI: ошибка агента", []
+
+            return "Agent error", []
 
 
 agent_loop = AgentLoop()
