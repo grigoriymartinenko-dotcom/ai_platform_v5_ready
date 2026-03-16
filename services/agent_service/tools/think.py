@@ -1,26 +1,29 @@
-# services/agent_service/tools/think.py
-
 import asyncio
 
-from services.agent_service.tools.tool_registry import register_tool
 from services.utils.logger import get_logger, TraceAdapter
 
 logger = TraceAdapter(get_logger("ThinkTool"), {})
 
 
-async def think_tool(thought: str = "", question: str = "") -> dict:
+async def think_tool(thought_process: str = ""):
     """
-    Асинхронный инструмент внутреннего размышления.
-    Принимает 'thought' или 'question', возвращает результат анализа.
+    Инструмент внутреннего размышления агента.
     """
-    text = thought or question or ""
-    logger.debug(f"[AGENT THINK] {text}")
 
-    # Симуляция внутреннего размышления
+    logger.debug(f"[AGENT THINK] {thought_process}")
+
     await asyncio.sleep(0.05)
 
-    return {"result": text}
+    return {
+        "result": thought_process
+    }
 
 
 # регистрация инструмента
-register_tool("think", "Internal reasoning tool", think_tool)
+'''
+register_tool(
+    name="think",
+    description="Internal reasoning tool",
+    func=think_tool
+)
+'''

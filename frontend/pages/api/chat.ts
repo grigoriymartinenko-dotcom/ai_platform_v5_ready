@@ -1,46 +1,21 @@
-import type {NextApiRequest, NextApiResponse} from "next"
+import type {NextApiRequest, NextApiResponse} from "next";
 
-export default async function handler(
-    req: NextApiRequest,
-    res: NextApiResponse
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") return res.status(405).json({error: "Method not allowed"});
 
-    if (req.method !== "POST") {
-        return res.status(405).json({error: "Method not allowed"})
-    }
+  const {message} = req.body;
+  if (!message) return res.status(400).json({error: "Message required"});
 
-    const {message} = req.body
+  try {
+    const response = await fetch("http://localhost:8000/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({message})
+    });
 
-    if (!message) {
-        return res.status(400).json({error: "Message is required"})
-    }
-
-    try {
-
-        const response = await fetch("http://localhost:8000/chat", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({message})
-        })
-
-        if (!response.ok) {
-            throw new Error("Gateway error")
-        }
-
-        const data = await response.json()
-
-        return res.status(200).json({
-            answer: data.answer
-        })
-
-    } catch (error) {
-
-        return res.status(500).json({
-            answer: "Ошибка соединения с Gateway"
-        })
-
-    }
-
+    const data = await response.json();
+    return res.status(200).json({answer: data.answer});
+  } catch {
+    return res.status(500).json({answer: "Gateway connection error"});
+  }
 }
