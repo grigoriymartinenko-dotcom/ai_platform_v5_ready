@@ -113,14 +113,20 @@ async def run_tool(name: str, args: dict):
         }
 
 
-def generate_tool_prompt():
+# 🔥 ОБНОВЛЕНО
+def generate_tool_prompt(tool_list=None):
     """
     Генерирует описание инструментов для SYSTEM_PROMPT.
+    Если передан tool_list — показывает только выбранные инструменты.
     """
 
     lines = []
 
     for name, info in TOOLS.items():
+
+        # 🔥 фильтр
+        if tool_list and name not in tool_list:
+            continue
 
         desc = info["description"]
         params = info["params"]
