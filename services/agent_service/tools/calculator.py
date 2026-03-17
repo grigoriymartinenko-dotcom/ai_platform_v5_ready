@@ -48,7 +48,7 @@ def _eval(node):
 
 async def calculator(*, expression=None, args=None, **kwargs):
     """
-    Инструмент для вычисления математических выражений.
+    Инструмент для вычисления математических выражений.a
     Поддерживает:
       - expression: str
       - args: {"expression": str} (для совместимости с LLM)

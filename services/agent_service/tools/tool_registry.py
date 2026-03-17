@@ -135,3 +135,29 @@ def generate_tool_prompt():
         )
 
     return "\n".join(lines)
+
+
+# ===========================
+# Регистрация инструментов
+# ===========================
+from .calculator import calculator
+from .web_search import web_search
+from .web_reader import read_page
+
+register_tool(
+    name="calculator",
+    description="Вычисляет математическое выражение",
+    func=calculator
+)
+
+register_tool(
+    name="web_search",
+    description="Поиск информации в интернете",
+    func=web_search
+)
+
+register_tool(
+    name="read_page",
+    description="Чтение текста страницы по URL",
+    func=read_page
+)

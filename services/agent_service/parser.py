@@ -24,6 +24,42 @@ def extract_json_objects(text: str):
 
 def parse_llm_output(text: str):
     results = []
+
+    text = text.strip()
+
+    # 🔥 NEW: если LLM вернул массив
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            data_list = json.loads(text)
+
+            for data in data_list:
+                if not isinstance(data, dict):
+                    continue
+
+                if "tool" in data:
+                    args = data.get("args", {})
+                    if not isinstance(args, dict):
+                        logger.warning(f"Args not dict: {args}")
+                        args = {}
+                    results.append({
+                        "type": "tool",
+                        "tool": data["tool"],
+                        "args": args
+                    })
+
+                if "final" in data:
+                    results.append({
+                        "type": "final",
+                        "content": data["final"]
+                    })
+
+            if results:
+                return results
+
+        except Exception as e:
+            logger.debug(f"Invalid JSON array: {e}")
+
+    # 🔹 старый режим (один или несколько JSON объектов)
     json_blocks = extract_json_objects(text)
 
     for block in json_blocks:
@@ -38,12 +74,22 @@ def parse_llm_output(text: str):
             if not isinstance(args, dict):
                 logger.warning(f"Args not dict: {args}")
                 args = {}
-            results.append({"type": "tool", "tool": data["tool"], "args": args})
+            results.append({
+                "type": "tool",
+                "tool": data["tool"],
+                "args": args
+            })
 
         if "final" in data:
-            results.append({"type": "final", "content": data["final"]})
+            results.append({
+                "type": "final",
+                "content": data["final"]
+            })
 
     if not results:
-        results.append({"type": "final", "content": text.strip()})
+        results.append({
+            "type": "final",
+            "content": text.strip()
+        })
 
     return results
