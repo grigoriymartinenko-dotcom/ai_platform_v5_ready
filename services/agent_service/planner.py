@@ -1,42 +1,37 @@
-import json
+# services/agent_service/planner.py
+
 import httpx
+import json
+from services.agent_service.prompt import PLANNER_PROMPT
+from services.utils.logger import get_logger, TraceAdapter
+
+logger = TraceAdapter(get_logger("Planner"), {})
 
 LLM_URL = "http://localhost:8100/chat"
 
 
-async def create_plan(user_message):
-
-    prompt = f"""
-You are an AI planner.
-
-Break the user task into steps.
-
-Return JSON:
-
-{{
- "steps":[
-  {{"tool":"tool_name","args":{{}}}}
- ]
-}}
-
-User task:
-{user_message}
-"""
+async def create_plan(user_message: str):
+    prompt = PLANNER_PROMPT + "\n\nUser:\n" + user_message
 
     async with httpx.AsyncClient(timeout=120) as client:
+        try:
+            r = await client.post(LLM_URL, json={"message": prompt})
+        except Exception as e:
+            logger.error(f"Planner HTTP error: {e}")
+            return []
 
-        r = await client.post(
-            LLM_URL,
-            json={"message": prompt}
-        )
+        if r.status_code != 200:
+            logger.error(f"Planner ERROR {r.status_code}: {r.text}")
+            return []
 
-    data = r.json()
-
-    text = data.get("answer", "")
+        data = r.json()
+        answer = data.get("answer", "").strip()
 
     try:
-        plan = json.loads(text)
-    except:
-        plan = {"steps": []}
-
-    return plan
+        parsed = json.loads(answer)
+        steps = parsed.get("steps", [])
+        logger.info(f"PLAN: {steps}")
+        return steps
+    except Exception as e:
+        logger.error(f"Planner parse error: {e}")
+        return []

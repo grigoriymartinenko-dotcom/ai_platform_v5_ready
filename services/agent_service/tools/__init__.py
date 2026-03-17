@@ -19,14 +19,14 @@ register_tool(
 from .calculator import calculator
 from .plan import plan_tool
 
-from .think import think_tool
+#from .think import think_tool
 
 from .weather import weather
 
 # регистрация инструментов через tool_registry
 
 
-register_tool("think", "Internal reasoning tool", think_tool)
+#register_tool("think", "Internal reasoning tool", think_tool)
 register_tool("plan", "Create plan for a task", plan_tool)
 register_tool("calculator", "Calculate math expression", calculator)
 register_tool("weather", "Get weather for city", weather)

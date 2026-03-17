@@ -12,157 +12,62 @@ from services.utils.logger import get_logger, TraceAdapter
 logger = TraceAdapter(get_logger("AgentLoop"), {})
 
 LLM_URL = "http://localhost:8100/chat"
-MAX_STEPS = 10
 
 
 class AgentLoop:
 
     async def call_llm(self, messages):
         tool_prompt = generate_tool_prompt()
-        prompt = SYSTEM_PROMPT + "\n\nAvailable tools:\n" + tool_prompt + "\n\nConversation:\n"
+        prompt = SYSTEM_PROMPT + "\n\nTools:\n" + tool_prompt + "\n\nConversation:\n"
 
         for m in messages:
-            role = m["role"]
-            content = m["content"]
-            prompt += f"{role}: {content}\n"
+            prompt += f"{m['role']}: {m['content']}\n"
 
         async with httpx.AsyncClient(timeout=120) as client:
-            try:
-                r = await client.post(LLM_URL, json={"message": prompt})
-            except Exception as e:
-                logger.error(f"LLM HTTP error: {e}")
-                return ""
-
+            r = await client.post(LLM_URL, json={"message": prompt})
             if r.status_code != 200:
-                logger.error(f"LLM ERROR {r.status_code}: {r.text}")
                 return ""
 
-            data = r.json()
-            answer = data.get("answer", "")
+            answer = r.json().get("answer", "").strip()
 
-            answer = answer.strip()
             if answer.startswith("```"):
                 answer = re.sub(r"```.*?\n", "", answer)
                 answer = answer.replace("```", "")
 
             return answer.strip()
 
-    async def handle_message(self, user_message):
-        logger.info(f"USER MESSAGE: {user_message}")
-        logger.info(f"AVAILABLE TOOLS: {list_tools()}")
+    async def execute_step(self, step_text: str):
+        logger.info(f"EXECUTE STEP: {step_text}")
 
-        messages = [{"role": "user", "content": user_message}]
-        used_tools = set()
+        messages = [{"role": "user", "content": step_text}]
+        tool_results = []
 
-        for step in range(MAX_STEPS):
-            llm_output = await self.call_llm(messages)
+        llm_output = await self.call_llm(messages)
 
-            if not llm_output:
-                logger.warning("LLM returned empty output")
-                return "LLM returned empty response", []
+        actions = parse_llm_output(llm_output)
 
-            logger.info(f"LLM STEP {step + 1}: {llm_output}")
-            text = llm_output.strip()
+        for action in actions:
 
-            # support tool(args)
-            tool_match = re.match(r"^(\w+)\((.*?)\)$", text)
-            if tool_match:
-                tool_name = tool_match.group(1)
-                arg_text = tool_match.group(2)
+            if action["type"] == "tool":
+                tool_name = action["tool"]
+                args = action.get("args", {})
+
+                logger.info(f"CALL TOOL {tool_name} {args}")
+
                 try:
-                    args = json.loads(arg_text)
-                    if not isinstance(args, dict):
-                        args = {"query": arg_text}
-                except:
-                    args = {"query": arg_text}
-
-                llm_output = json.dumps({"tool": tool_name, "args": args})
-                logger.info(f"Converted tool() → {llm_output}")
-
-            # support tool{json}
-            tool_json_match = re.match(r"^(\w+)\s*(\{.*\})$", text)
-            if tool_json_match:
-                tool_name = tool_json_match.group(1)
-                json_part = tool_json_match.group(2)
-                try:
-                    args = json.loads(json_part)
-                except:
-                    args = {}
-                llm_output = json.dumps({"tool": tool_name, "args": args})
-                logger.info(f"Converted tool{{}} → {llm_output}")
-
-            actions = parse_llm_output(llm_output)
-
-            if not actions:
-                logger.info("No structured output → treating as final")
-                return llm_output, []
-
-            final_answer = None
-            tool_results_summary = []
-
-            for action in actions:
-
-                if action["type"] == "tool":
-                    tool_name = action["tool"]
-                    args = action.get("args", {})
-
-                    if tool_name in used_tools and tool_name == "plan":
-                        logger.warning("Prevented repeated planning")
-                        continue
-
-                    used_tools.add(tool_name)
-                    logger.info(f"CALL TOOL {tool_name} {args}")
-
-                    try:
-                        if tool_name == "calculator" and "expression" in args:
-                            expr = args["expression"]
-                            try:
-                                result = str(sympify(expr).evalf())
-                            except Exception as e:
-                                result = f"Calculation error: {e}"
-                        else:
-                            result = await run_tool(tool_name, args)
-
-                        if tool_name == "web_search" and isinstance(result, str):
-                            lines = []
-                            for line in result.split("\n\n"):
-                                match = re.match(r"(.+):\s*\((https?://.+)\)", line)
-                                if match:
-                                    title, url = match.groups()
-                                    lines.append(f"[{title}]({url})")
-                                else:
-                                    lines.append(line)
-                            result = "\n".join(lines)
-
-                    except Exception as e:
-                        result = f"Tool error: {e}"
-
-                    logger.info(f"TOOL RESULT {result}")
-
-                    if isinstance(result, (dict, list)):
-                        result_text = json.dumps(result, ensure_ascii=False, indent=2)
+                    if tool_name == "calculator" and "expression" in args:
+                        result = str(sympify(args["expression"]).evalf())
                     else:
-                        result_text = str(result)
+                        result = await run_tool(tool_name, args)
+                except Exception as e:
+                    result = f"Tool error: {e}"
 
-                    tool_results_summary.append(f"{tool_name}: {result_text}")
+                tool_results.append(f"{tool_name}: {result}")
 
-                    messages.append({
-                        "role": "tool",
-                        "content": f"{tool_name} result:\n{result_text}"
-                    })
+            elif action["type"] == "final":
+                tool_results.append(action["content"])
 
-                elif action["type"] == "final":
-                    final_answer = action["content"]
-
-            # 🔥 если есть final — возвращаем с результатами tools
-            if final_answer:
-                if tool_results_summary:
-                    combined = "\n".join(tool_results_summary)
-                    return f"{combined}\n\n{final_answer}", []
-                return final_answer, []
-
-        logger.warning("Agent step limit reached")
-        return "Agent step limit reached", []
+        return "\n".join(tool_results)
 
 
 agent_loop = AgentLoop()
