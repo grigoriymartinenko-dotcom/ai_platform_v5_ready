@@ -1,13 +1,12 @@
 # services/agent_service/agent.py
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-
-import httpx
 import json
-from sympy import sympify
 import re
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from sympy import sympify
 
 from services.agent_service.agent_loop import agent_loop, ExecutionContext
 from services.agent_service.planner import create_plan
@@ -27,13 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-LLM_URL = "http://localhost:8100/chat"
 
-# 🔹 Встроенный инструмент для решения необходимости куртки
+# -------------------------
+# Встроенный инструмент для куртки
+# -------------------------
 async def evaluate_jacket_need(args: dict):
     temp = None
     if "weather" in args:
-        m = re.search(r"Температура:\s*([\d\.\-]+)°C", args["weather"])
+        m = re.search(r"Температура:\s*([\d\.\-]+)°C", str(args["weather"]))
         if m:
             temp = float(m[1])
     expr_result = args.get("expression_result", 0)
@@ -45,21 +45,27 @@ async def evaluate_jacket_need(args: dict):
             return "Куртка, скорее всего, не нужна."
     return "Недостаточно данных для решения."
 
+
+# -------------------------
+# Финальный синтез через LLM
+# -------------------------
 async def final_synthesis(results_text: str):
-    """Финальный синтез ответа через LLM"""
     prompt = FINAL_PROMPT + "\n" + results_text
+    import httpx
     async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(LLM_URL, json={"message": prompt})
+        r = await client.post("http://localhost:8100/chat", json={"message": prompt})
         if r.status_code != 200:
             return results_text
         return r.json().get("answer", results_text)
 
 
+# -------------------------
+# /chat
+# -------------------------
 @app.post("/chat")
 async def chat(request: Request):
     data = await request.json()
     user_message = data.get("message", "")
-
     if not user_message:
         return JSONResponse({"error": "No message provided"}, status_code=400)
 
@@ -69,10 +75,12 @@ async def chat(request: Request):
 
     result = await agent_loop.execute(user_message, steps)
     final_answer = await final_synthesis(result)
-
     return {"answer": final_answer}
 
 
+# -------------------------
+# /chat_stream (SSE)
+# -------------------------
 @app.post("/chat_stream")
 async def chat_stream(request: Request):
     data = await request.json()
@@ -103,18 +111,18 @@ async def chat_stream(request: Request):
                     tool_name = action["tool"]
                     args = action.get("args", {})
 
-                    # 🔹 Автоопределение инструмента
-                    auto_substituted = False
+                    # Автоподстановка инструментов
+                    auto_sub = False
                     if tool_name == "tool":
                         if "expression_result" in args and "weather" in args:
                             tool_name = "evaluate_jacket_need"
-                            auto_substituted = True
+                            auto_sub = True
                         elif "expression" in args:
                             tool_name = "calculator"
-                            auto_substituted = True
+                            auto_sub = True
                         elif "city" in args:
                             tool_name = "weather"
-                            auto_substituted = True
+                            auto_sub = True
                         else:
                             result = f"Unknown tool for action: {action}"
                             context.add_step(step_text, "tool", args, result)
@@ -122,7 +130,7 @@ async def chat_stream(request: Request):
                             yield f"data: {json.dumps({'step_index': step_index, 'tool': tool_name, 'result': result}, ensure_ascii=False)}\n\n"
                             continue
 
-                    if auto_substituted:
+                    if auto_sub:
                         logger.info(f"Auto-substituted tool '{tool_name}' for action: {action}")
 
                     if "expression" in args and isinstance(args["expression"], str):

@@ -1,19 +1,19 @@
+# services/utils/logger.py
+
 import logging
 import uuid
+
 import colorlog
 
 TRACE_ID = None
-
 
 def new_trace():
     global TRACE_ID
     TRACE_ID = str(uuid.uuid4())[:4]
     return TRACE_ID
 
-
 def get_trace():
     return TRACE_ID
-
 
 def get_logger(name: str):
     handler = colorlog.StreamHandler()
@@ -34,7 +34,6 @@ def get_logger(name: str):
         logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
     return logger
-
 
 class TraceAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):

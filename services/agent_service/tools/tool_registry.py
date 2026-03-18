@@ -1,169 +1,67 @@
-# services/agent_service/tools/tool_registry.py
-
-import asyncio
-import inspect
-
 from services.utils.logger import get_logger, TraceAdapter
 
 base_logger = get_logger("ToolRegistry")
 logger = TraceAdapter(base_logger, {})
 
 TOOLS = {}
-REGISTERED = set()
 
 
-def register_tool(name: str, description: str, func):
-    """
-    Регистрирует инструмент в глобальном реестре.
-    """
-
-    if name in REGISTERED:
-        logger.info(f"Tool '{name}' is already registered, skipping...")
-        return
-
-    signature = inspect.signature(func)
-
-    params = []
-
-    for p in signature.parameters.values():
-        params.append(p.name)
+def register_tool(name, description, schema, func):
+    if name in TOOLS:
+        raise ValueError(f"Tool {name} already registered")
 
     TOOLS[name] = {
+        "name": name,
         "description": description,
+        "schema": schema,
         "func": func,
-        "params": params
     }
 
-    REGISTERED.add(name)
-
-    logger.info(f"Registered tool '{name}'")
+    logger.info(f"REGISTER TOOL {name}")
 
 
-def get_tool(name: str):
-    """
-    Возвращает функцию инструмента.
-    """
-
-    tool = TOOLS.get(name)
-
-    if not tool:
-        logger.error(f"Tool '{name}' not found")
-        return None
-
-    return tool["func"]
+def get_tool(name):
+    return TOOLS.get(name)
 
 
 def list_tools():
-    """
-    Возвращает список всех инструментов.
-    """
+    return [
+        {
+            "name": tool["name"],
+            "description": tool["description"],
+            "schema": tool["schema"],
+        }
+        for tool in TOOLS.values()
+    ]
 
-    return list(TOOLS.keys())
 
-
-async def run_tool(name: str, args: dict):
-    """
-    Выполняет инструмент.
-    Поддерживает async и sync функции.
-    """
-
-    tool = TOOLS.get(name)
+async def run_tool(name, args):
+    tool = get_tool(name)
 
     if not tool:
-        logger.error(f"Tool '{name}' not found")
-        return {"error": f"Tool '{name}' not found"}
-
-    func = tool["func"]
-    params = tool["params"]
-
-    if args is None:
-        args = {}
-
-    # Фильтрация аргументов
-    filtered_args = {}
-
-    for k, v in args.items():
-        if k in params:
-            filtered_args[k] = v
-        else:
-            logger.warning(f"Ignoring unknown arg '{k}' for tool '{name}'")
-
-    logger.info(f"CALL TOOL {name} {filtered_args}")
+        return {
+            "success": False,
+            "data": None,
+            "error": f"Tool {name} not found"
+        }
 
     try:
+        result = await tool["func"](**args)
 
-        if asyncio.iscoroutinefunction(func):
-
-            result = await func(**filtered_args)
-
-        else:
-
-            result = func(**filtered_args)
-
-        logger.info(f"TOOL RESULT {result}")
+        if not isinstance(result, dict):
+            return {
+                "success": False,
+                "data": None,
+                "error": "Tool must return dict"
+            }
 
         return result
 
     except Exception as e:
-
-        logger.error(f"Error running tool '{name}': {e}")
+        logger.exception(f"Tool {name} failed")
 
         return {
+            "success": False,
+            "data": None,
             "error": str(e)
         }
-
-
-# 🔥 ОБНОВЛЕНО
-def generate_tool_prompt(tool_list=None):
-    """
-    Генерирует описание инструментов для SYSTEM_PROMPT.
-    Если передан tool_list — показывает только выбранные инструменты.
-    """
-
-    lines = []
-
-    for name, info in TOOLS.items():
-
-        # 🔥 фильтр
-        if tool_list and name not in tool_list:
-            continue
-
-        desc = info["description"]
-        params = info["params"]
-
-        if params:
-            param_text = ", ".join(params)
-        else:
-            param_text = "no args"
-
-        lines.append(
-            f"{name}({param_text}) — {desc}"
-        )
-
-    return "\n".join(lines)
-
-
-# ===========================
-# Регистрация инструментов
-# ===========================
-from .calculator import calculator
-from .web_search import web_search
-from .web_reader import read_page
-
-register_tool(
-    name="calculator",
-    description="Вычисляет математическое выражение",
-    func=calculator
-)
-
-register_tool(
-    name="web_search",
-    description="Поиск информации в интернете",
-    func=web_search
-)
-
-register_tool(
-    name="read_page",
-    description="Чтение текста страницы по URL",
-    func=read_page
-)

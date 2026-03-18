@@ -1,29 +1,16 @@
-# services/agent_service/tools/think.py
-
-import asyncio
-from services.utils.logger import get_logger, TraceAdapter
-
-logger = TraceAdapter(get_logger("ThinkTool"), {})
+# think.py
+# ------------------------
+from services.agent_service.tools.tool_registry import register_tool
 
 
-async def think_tool(thought_process: str = ""):
-    """
-    ⚠️ DEPRECATED TOOL
-
-    Этот инструмент больше не должен использоваться LLM.
-    THINK теперь реализован внутри AgentLoop.
-
-    Оставлен только для совместимости.
-    """
-
-    logger.warning("think_tool SHOULD NOT BE USED")
-
-    await asyncio.sleep(0.01)
-
-    return {
-        "result": "internal reasoning disabled"
-    }
+async def think(thought: str = ""):
+    return {"success": True, "data": {"thought": thought}, "error": None}
 
 
-# ❌ НЕ РЕГИСТРИРУЕМ
-# register_tool(...)
+register_tool(
+    name="think",
+    description="Internal reasoning tool. Stores agent thoughts. Not for external use.",
+    schema={"type": "object", "properties": {"thought": {"type": "string", "description": "Agent reasoning text"}},
+            "required": ["thought"]},
+    func=think
+)

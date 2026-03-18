@@ -1,25 +1,31 @@
-from .tools.tool_registry import list_tools
+import json
+
+from services.agent_service.tools.tool_registry import list_tools
 
 
-def build_tool_prompt():
+def generate_tool_prompt():
     tools = list_tools()
 
-    prompt = "You can use tools.\n\n"
+    return f"""
+You can use tools.
 
-    for name, tool in tools.items():
-        prompt += f"{name}: {tool['description']}\n"
+TOOLS:
+{json.dumps(tools, indent=2)}
 
-    prompt += """
+RULES:
+- Always return JSON
+- Use this format:
 
-Use format:
+{{
+  "action": "tool_name",
+  "args": {{
+    ...
+  }}
+}}
 
-THOUGHT: reasoning
-ACTION: tool_name
-INPUT: tool input
+OR
 
-When done:
-
-FINAL: answer
+{{
+  "final": "your answer"
+}}
 """
-
-    return prompt
